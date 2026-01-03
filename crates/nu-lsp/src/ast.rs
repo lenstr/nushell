@@ -1,6 +1,6 @@
 use crate::Id;
 use nu_protocol::{
-    DeclId, ModuleId, Span,
+    DeclId, ModuleId, Span, VarId,
     ast::{Argument, Block, Call, Expr, Expression, FindMapResult, ListItem, PathMember, Traverse},
     engine::StateWorkingSet,
 };
@@ -442,65 +442,64 @@ fn try_find_id_in_flag(
         if let Argument::Named((name, short_form, _)) = arg {
             // Check the primary flag name (--flag or -f)
             if check_location(&name.span)
-                && let Some(result) = find_flag_in_signature(
-                    working_set,
-                    call.decl_id,
-                    name.item.trim_start_matches('-'),
-                )
-                && id_ref.is_none_or(|id| *id == result.0)
+                && let Some(id) =
+                    find_flag_var_id(working_set, call.decl_id, name.item.trim_start_matches('-'))
+                && id_ref.is_none_or(|r| *r == id)
             {
-                return Some(result);
+                return Some((id, name.span));
             }
             // Check explicit short flag (-f in "--flag -f")
             if let Some(short) = short_form
                 && check_location(&short.span)
                 && let Some(short_char) = short.item.chars().last()
-                && let Some(result) = find_flag_by_short(working_set, call.decl_id, short_char)
-                && id_ref.is_none_or(|id| *id == result.0)
+                && let Some(id) = find_short_flag_var_id(working_set, call.decl_id, short_char)
+                && id_ref.is_none_or(|r| *r == id)
             {
-                return Some(result);
+                return Some((id, short.span));
             }
         }
     }
     None
 }
 
-/// Find a flag by its long name in the command's signature
-fn find_flag_in_signature(
-    working_set: &StateWorkingSet,
-    decl_id: DeclId,
-    flag_name: &str,
-) -> Option<(Id, Span)> {
+/// Find flag's variable Id by its long name
+fn find_flag_var_id(working_set: &StateWorkingSet, decl_id: DeclId, flag_name: &str) -> Option<Id> {
     let signature = working_set.get_decl(decl_id).signature();
     signature.named.iter().find_map(|flag| {
         (flag.long == flag_name).then_some(())?;
         let var_id = flag.var_id?;
-        let var = working_set.get_variable(var_id);
-        Some((
-            Id::Variable(var_id, flag_name.as_bytes().into()),
-            var.declaration_span,
-        ))
+        // Get the actual variable name from declaration span (handles dash to underscore conversion)
+        let name = get_var_name_from_declaration(working_set, var_id);
+        Some(Id::Variable(var_id, name))
     })
 }
 
-/// Find a flag by its short char in the command's signature
-fn find_flag_by_short(
+/// Find flag's variable Id by its short char
+fn find_short_flag_var_id(
     working_set: &StateWorkingSet,
     decl_id: DeclId,
     short_char: char,
-) -> Option<(Id, Span)> {
+) -> Option<Id> {
     let signature = working_set.get_decl(decl_id).signature();
     signature.named.iter().find_map(|flag| {
         (flag.short == Some(short_char)).then_some(())?;
         let var_id = flag.var_id?;
-        let var = working_set.get_variable(var_id);
-        let name: Box<[u8]> = if !flag.long.is_empty() {
-            flag.long.as_bytes().into()
-        } else {
-            short_char.to_string().as_bytes().into()
-        };
-        Some((Id::Variable(var_id, name), var.declaration_span))
+        // Get the actual variable name from declaration span (handles dash to underscore conversion)
+        let name = get_var_name_from_declaration(working_set, var_id);
+        Some(Id::Variable(var_id, name))
     })
+}
+
+/// Get the variable name from its declaration span
+fn get_var_name_from_declaration(working_set: &StateWorkingSet, var_id: VarId) -> Box<[u8]> {
+    let var = working_set.get_variable(var_id);
+    let content = working_set.get_span_contents(var.declaration_span);
+    // Strip leading dashes if present (for flag declarations like --flag or -f)
+    content
+        .strip_prefix(b"--")
+        .or_else(|| content.strip_prefix(b"-"))
+        .unwrap_or(content)
+        .into()
 }
 
 fn find_id_in_expr(
@@ -613,11 +612,12 @@ fn find_reference_by_id_in_expr(
                     call.head,
                 )]
             }
-            // Check for misc matches (use, module, etc.)
-            _ => try_find_id_in_misc(call, working_set, None, Some(id))
-                .map(|(_, span_found)| span_found)
+            // Check for flag references and misc matches (use, module, etc.)
+            _ => try_find_id_in_flag(call, working_set, None, Some(id))
+                .map(|(_, span)| span)
                 .into_iter()
-                .collect::<Vec<_>>(),
+                .chain(try_find_id_in_misc(call, working_set, None, Some(id)).map(|(_, span)| span))
+                .collect(),
         },
         _ => vec![],
     }

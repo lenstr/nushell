@@ -1097,6 +1097,30 @@ mod tests {
         "workspace/foo.nu", (28, 3),
         serde_json::json!([make_highlight(28, 2, 28, 15), make_highlight(35, 0, 35, 13)])
     )]
+    // Regression test for find-references on flags
+    #[case::flag_long_reference(
+        "goto/flag.nu", (8, 11),
+        serde_json::json!([
+            make_highlight(5, 11, 5, 15),  // $flag usage in body
+            make_highlight(8, 9, 8, 15),   // --flag usage in call
+            make_highlight(1, 6, 1, 12),   // --flag definition (just "flag", span extended by reference_not_in_ast)
+        ])
+    )]
+    #[case::flag_short_reference(
+        "goto/flag.nu", (10, 10),
+        serde_json::json!([
+            make_highlight(10, 9, 10, 11), // -s usage in call
+            make_highlight(3, 5, 3, 7),    // -s definition (just "s", span extended by reference_not_in_ast)
+        ])
+    )]
+    #[case::flag_dashed_name_reference(
+        "goto/flag.nu", (19, 25),
+        serde_json::json!([
+            make_highlight(16, 11, 16, 20), // $some_flag usage in body
+            make_highlight(19, 21, 19, 32), // --some-flag usage in call
+            make_highlight(14, 6, 14, 17),  // --some-flag definition
+        ])
+    )]
     fn document_highlight_request(
         #[case] filename: &str,
         #[case] cursor_position: (u32, u32),
