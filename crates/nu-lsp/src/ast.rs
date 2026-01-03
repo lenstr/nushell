@@ -502,6 +502,55 @@ fn get_var_name_from_declaration(working_set: &StateWorkingSet, var_id: VarId) -
         .into()
 }
 
+/// Find a flag or parameter definition in a signature expression
+///
+/// # Arguments
+/// - `signature`: The signature to search in
+/// - `working_set`: The working set for looking up variables
+/// - `location`: cursor position for go-to-definition, None for find-references
+/// - `id_ref`: target ID for find-references, None for go-to-definition
+fn try_find_id_in_signature(
+    signature: &nu_protocol::Signature,
+    working_set: &StateWorkingSet,
+    location: Option<&usize>,
+    id_ref: Option<&Id>,
+) -> Option<(Id, Span)> {
+    let check_location = |span: &Span| location.is_none_or(|pos| span.contains(*pos));
+
+    // Check flags (named parameters)
+    signature
+        .named
+        .iter()
+        .find_map(|flag| {
+            let var_id = flag.var_id?;
+            let var = working_set.get_variable(var_id);
+            let decl_span = var.declaration_span;
+
+            check_location(&decl_span).then_some(())?;
+            let name = get_var_name_from_declaration(working_set, var_id);
+            let id = Id::Variable(var_id, name);
+            id_ref.is_none_or(|r| *r == id).then_some((id, decl_span))
+        })
+        .or_else(|| {
+            // Check positional parameters
+            signature
+                .required_positional
+                .iter()
+                .chain(signature.optional_positional.iter())
+                .chain(signature.rest_positional.iter())
+                .find_map(|positional| {
+                    let var_id = positional.var_id?;
+                    let var = working_set.get_variable(var_id);
+                    let decl_span = var.declaration_span;
+
+                    check_location(&decl_span).then_some(())?;
+                    let content = working_set.get_span_contents(decl_span);
+                    let id = Id::Variable(var_id, content.into());
+                    id_ref.is_none_or(|r| *r == id).then_some((id, decl_span))
+                })
+        })
+}
+
 fn find_id_in_expr(
     expr: &Expression,
     working_set: &StateWorkingSet,
@@ -562,6 +611,14 @@ fn find_id_in_expr(
         Expr::Overlay(Some(module_id)) => {
             FindMapResult::Found((Id::Module(*module_id, [].into()), span))
         }
+        Expr::Signature(sig) => {
+            // Check if the cursor is on a flag/parameter definition within the signature
+            if let Some(result) = try_find_id_in_signature(sig, working_set, Some(location), None) {
+                FindMapResult::Found(result)
+            } else {
+                FindMapResult::Found((Id::Value(expr.ty.clone()), span))
+            }
+        }
         // terminal value expressions
         Expr::Bool(_)
         | Expr::Binary(_)
@@ -574,7 +631,6 @@ fn find_id_in_expr(
         | Expr::Int(_)
         | Expr::Nothing
         | Expr::RawString(_)
-        | Expr::Signature(_)
         | Expr::String(_) => FindMapResult::Found((Id::Value(expr.ty.clone()), span)),
         _ => FindMapResult::Continue,
     }
@@ -619,6 +675,10 @@ fn find_reference_by_id_in_expr(
                 .chain(try_find_id_in_misc(call, working_set, None, Some(id)).map(|(_, span)| span))
                 .collect(),
         },
+        // NOTE: We don't need to handle Expr::Signature here because
+        // reference_not_in_ast already adds the definition span.
+        // The definition in the signature is handled specially because
+        // it needs span adjustment (stripping dashes).
         _ => vec![],
     }
 }

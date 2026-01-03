@@ -1121,6 +1121,23 @@ mod tests {
             make_highlight(14, 6, 14, 17),  // --some-flag definition
         ])
     )]
+    // Tests for clicking on flag DEFINITION in signature (not call site)
+    #[case::flag_definition_in_signature(
+        "goto/flag.nu", (1, 6),  // cursor on --flag definition in signature
+        serde_json::json!([
+            make_highlight(5, 11, 5, 15),  // $flag usage in body
+            make_highlight(8, 9, 8, 15),   // --flag usage in call
+            make_highlight(1, 6, 1, 12),   // --flag definition itself
+        ])
+    )]
+    #[case::flag_dashed_definition_in_signature(
+        "goto/flag.nu", (14, 8),  // cursor on --some-flag definition in signature
+        serde_json::json!([
+            make_highlight(16, 11, 16, 20), // $some_flag usage in body
+            make_highlight(19, 21, 19, 32), // --some-flag usage in call
+            make_highlight(14, 6, 14, 17),  // --some-flag definition
+        ])
+    )]
     fn document_highlight_request(
         #[case] filename: &str,
         #[case] cursor_position: (u32, u32),
