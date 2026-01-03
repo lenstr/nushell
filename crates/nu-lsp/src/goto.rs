@@ -176,6 +176,9 @@ mod tests {
     #[case::overlay_third("goto/use_module.nu", (2, 30), Some("goto/module.nu"), (0, 0), None)]
     #[case::cell_path_first("hover/use.nu", (2, 7), Some("hover/cell_path.nu"), (1, 10), None)]
     #[case::cell_path_second("hover/use.nu", (2, 9), Some("hover/cell_path.nu"), (1, 17), None)]
+    #[case::flag_long("goto/flag.nu", (8, 11), None, (1, 4), Some((1, 10)))]
+    #[case::flag_long_other("goto/flag.nu", (9, 12), None, (2, 4), Some((2, 11)))]
+    #[case::flag_short("goto/flag.nu", (10, 10), None, (3, 4), Some((3, 6)))]
     fn goto_definition_single_request(
         #[case] filename: &str,
         #[case] cursor_position: (u32, u32),

@@ -425,6 +425,84 @@ fn try_find_id_in_overlay(
     None
 }
 
+/// Find a named argument (flag) in a call
+///
+/// # Arguments
+/// - `location`: cursor position for go-to-definition, None for find-references
+/// - `id_ref`: target ID for find-references, None for go-to-definition
+fn try_find_id_in_flag(
+    call: &Call,
+    working_set: &StateWorkingSet,
+    location: Option<&usize>,
+    id_ref: Option<&Id>,
+) -> Option<(Id, Span)> {
+    let check_location = |span: &Span| location.is_none_or(|pos| span.contains(*pos));
+
+    for arg in &call.arguments {
+        if let Argument::Named((name, short_form, _)) = arg {
+            // Check the primary flag name (--flag or -f)
+            if check_location(&name.span)
+                && let Some(result) = find_flag_in_signature(
+                    working_set,
+                    call.decl_id,
+                    name.item.trim_start_matches('-'),
+                )
+                && id_ref.is_none_or(|id| *id == result.0)
+            {
+                return Some(result);
+            }
+            // Check explicit short flag (-f in "--flag -f")
+            if let Some(short) = short_form
+                && check_location(&short.span)
+                && let Some(short_char) = short.item.chars().last()
+                && let Some(result) = find_flag_by_short(working_set, call.decl_id, short_char)
+                && id_ref.is_none_or(|id| *id == result.0)
+            {
+                return Some(result);
+            }
+        }
+    }
+    None
+}
+
+/// Find a flag by its long name in the command's signature
+fn find_flag_in_signature(
+    working_set: &StateWorkingSet,
+    decl_id: DeclId,
+    flag_name: &str,
+) -> Option<(Id, Span)> {
+    let signature = working_set.get_decl(decl_id).signature();
+    signature.named.iter().find_map(|flag| {
+        (flag.long == flag_name).then_some(())?;
+        let var_id = flag.var_id?;
+        let var = working_set.get_variable(var_id);
+        Some((
+            Id::Variable(var_id, flag_name.as_bytes().into()),
+            var.declaration_span,
+        ))
+    })
+}
+
+/// Find a flag by its short char in the command's signature
+fn find_flag_by_short(
+    working_set: &StateWorkingSet,
+    decl_id: DeclId,
+    short_char: char,
+) -> Option<(Id, Span)> {
+    let signature = working_set.get_decl(decl_id).signature();
+    signature.named.iter().find_map(|flag| {
+        (flag.short == Some(short_char)).then_some(())?;
+        let var_id = flag.var_id?;
+        let var = working_set.get_variable(var_id);
+        let name: Box<[u8]> = if !flag.long.is_empty() {
+            flag.long.as_bytes().into()
+        } else {
+            short_char.to_string().as_bytes().into()
+        };
+        Some((Id::Variable(var_id, name), var.declaration_span))
+    })
+}
+
 fn find_id_in_expr(
     expr: &Expression,
     working_set: &StateWorkingSet,
@@ -445,7 +523,8 @@ fn find_id_in_expr(
                 let span = command_name_span_from_call_head(working_set, call.decl_id, call.head);
                 FindMapResult::Found((Id::Declaration(call.decl_id), span))
             } else {
-                try_find_id_in_misc(call, working_set, Some(location), None)
+                try_find_id_in_flag(call, working_set, Some(location), None)
+                    .or_else(|| try_find_id_in_misc(call, working_set, Some(location), None))
                     .map(FindMapResult::Found)
                     .unwrap_or_default()
             }
