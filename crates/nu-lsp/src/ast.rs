@@ -439,24 +439,25 @@ fn try_find_id_in_flag(
     let check_location = |span: &Span| location.is_none_or(|pos| span.contains(*pos));
 
     for arg in &call.arguments {
-        if let Argument::Named((name, short_form, _)) = arg {
-            // Check the primary flag name (--flag or -f)
-            if check_location(&name.span)
-                && let Some(id) =
-                    find_flag_var_id(working_set, call.decl_id, name.item.trim_start_matches('-'))
-                && id_ref.is_none_or(|r| *r == id)
-            {
-                return Some((id, name.span));
-            }
-            // Check explicit short flag (-f in "--flag -f")
-            if let Some(short) = short_form
-                && check_location(&short.span)
-                && let Some(short_char) = short.item.chars().last()
-                && let Some(id) = find_short_flag_var_id(working_set, call.decl_id, short_char)
-                && id_ref.is_none_or(|r| *r == id)
-            {
-                return Some((id, short.span));
-            }
+        let Argument::Named((name, short_form, _)) = arg else {
+            continue;
+        };
+        // Check the primary flag name (--flag or -f)
+        if check_location(&name.span)
+            && let Some(id) =
+                find_flag_var_id(working_set, call.decl_id, name.item.trim_start_matches('-'))
+            && id_ref.is_none_or(|r| *r == id)
+        {
+            return Some((id, name.span));
+        }
+        // Check explicit short flag (-f in "--flag -f")
+        if let Some(short) = short_form
+            && check_location(&short.span)
+            && let Some(short_char) = short.item.chars().last()
+            && let Some(id) = find_short_flag_var_id(working_set, call.decl_id, short_char)
+            && id_ref.is_none_or(|r| *r == id)
+        {
+            return Some((id, short.span));
         }
     }
     None
