@@ -466,7 +466,9 @@ fn try_find_id_in_flag(
 fn find_flag_var_id(working_set: &StateWorkingSet, decl_id: DeclId, flag_name: &str) -> Option<Id> {
     let signature = working_set.get_decl(decl_id).signature();
     signature.named.iter().find_map(|flag| {
-        (flag.long == flag_name).then_some(())?;
+        if flag.long != flag_name {
+            return None;
+        }
         let var_id = flag.var_id?;
         // Get the actual variable name from declaration span (handles dash to underscore conversion)
         let name = get_var_name_from_declaration(working_set, var_id);
@@ -482,7 +484,9 @@ fn find_short_flag_var_id(
 ) -> Option<Id> {
     let signature = working_set.get_decl(decl_id).signature();
     signature.named.iter().find_map(|flag| {
-        (flag.short == Some(short_char)).then_some(())?;
+        if flag.short != Some(short_char) {
+            return None;
+        }
         let var_id = flag.var_id?;
         // Get the actual variable name from declaration span (handles dash to underscore conversion)
         let name = get_var_name_from_declaration(working_set, var_id);
@@ -525,8 +529,9 @@ fn try_find_id_in_signature(
             let var_id = flag.var_id?;
             let var = working_set.get_variable(var_id);
             let decl_span = var.declaration_span;
-
-            check_location(&decl_span).then_some(())?;
+            if !check_location(&decl_span) {
+                return None;
+            }
             let name = get_var_name_from_declaration(working_set, var_id);
             let id = Id::Variable(var_id, name);
             id_ref.is_none_or(|r| *r == id).then_some((id, decl_span))
@@ -542,8 +547,9 @@ fn try_find_id_in_signature(
                     let var_id = positional.var_id?;
                     let var = working_set.get_variable(var_id);
                     let decl_span = var.declaration_span;
-
-                    check_location(&decl_span).then_some(())?;
+                    if !check_location(&decl_span) {
+                        return None;
+                    }
                     let content = working_set.get_span_contents(decl_span);
                     let id = Id::Variable(var_id, content.into());
                     id_ref.is_none_or(|r| *r == id).then_some((id, decl_span))
